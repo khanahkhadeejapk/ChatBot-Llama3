@@ -1,0 +1,26 @@
+# ── Personal data — NEVER commit these ──
+cookies.txt
+*.json
+
+# ── Python cache ──
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# ── Virtual environments ──
+venv/
+.venv/
+env/
+ENV/
+
+# ── OS junk ──
+.DS_Store
+Thumbs.db
+
+# ── VS Code settings (optional — remove if you want to share them) ──
+.vscode/
+
+# ── Logs ──
+*.log
