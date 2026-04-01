@@ -1,61 +1,93 @@
-"""
-AI Chatbot using Ollama with LLaMA 3
-=====================================
-A terminal-based chatbot that uses the Ollama framework
-to run the LLaMA 3 large language model locally.
-"""
-
 import ollama
-import sys
+from ddgs import DDGS
+from datetime import datetime
 
 
 def create_system_message() -> dict:
-    """Create the system message that defines the chatbot's behaviour."""
     return {
         "role": "system",
         "content": (
-            "You are a helpful, friendly AI assistant. "
-            "Provide clear, concise, and accurate answers. "
-            "If you are unsure about something, say so honestly."
-        ),
+            f"You are a precise and factual AI assistant.\n"
+            f"Today's date is {datetime.now().strftime('%Y-%m-%d')}.\n\n"
+            "Rules:\n"
+            "- Answer only the question asked, nothing extra.\n"
+            "- Keep answers under 2-3 sentences.\n"
+            "- If unsure, respond with 'I don't know'.\n"
+        )
     }
 
 
-def chat(conversation_history: list[dict]) -> str:
-    """
-    Send the full conversation history to the LLaMA 3 model via Ollama
-    and return the assistant's reply.
+def needs_web_search(query: str) -> bool:
+    """Check if query requires fresh web information."""
+    keywords = ["latest", "news", "today", "current", "update", "2025", "2026"]
+    query = query.lower()
+    return any(k in query for k in keywords)
 
-    Parameters
-    ----------
-    conversation_history : list[dict]
-        A list of message dicts with 'role' and 'content' keys.
 
-    Returns
-    -------
-    str
-        The model's generated response text.
-    """
+def search_web(query: str) -> str:
+    """Fetch latest information from DuckDuckGo."""
+    results = []
+
+    try:
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=5):
+                results.append(f"{r['title']} - {r['body']}")
+    except Exception as e:
+        return f"Search error: {e}"
+
+    return "\n".join(results) if results else "No relevant results found."
+
+
+def chat(conversation_history: list, user_input: str) -> str:
+    """Send conversation + optional web info to LLaMA."""
+
+    if needs_web_search(user_input):
+        web_results = search_web(user_input)
+
+        if "No relevant results found" not in web_results:
+            content = f"{user_input}\n\nWeb info:\n{web_results}"
+        else:
+            content = user_input
+    else:
+        content = user_input
+
+    conversation_history.append({
+        "role": "user",
+        "content": content
+    })
+
+    trimmed_history = conversation_history[-10:]
+
     response = ollama.chat(
-        model="llama3",
-        messages=conversation_history,
+        model="llama3:8b",
+        messages=trimmed_history,
+        options={
+            "temperature": 0.2,
+            "top_p": 0.8,
+            "repeat_penalty": 1.2,
+            "num_predict": 80
+        }
     )
-    return response["message"]["content"]
+
+    reply = response["message"]["content"].strip()
+
+    conversation_history.append({
+        "role": "assistant",
+        "content": reply
+    })
+
+    return reply
 
 
 def main() -> None:
-    """Run the interactive chatbot loop."""
-
     print("=" * 60)
-    print("  AI Chatbot powered by LLaMA 3 (via Ollama)")
-    print("  Type 'exit' to quit.")
+    print(" AI Chatbot (LLaMA 3 + Web Search)")
+    print(" Type 'exit' to quit.")
     print("=" * 60)
 
-    # Initialise conversation history with system prompt
-    conversation_history: list[dict] = [create_system_message()]
+    conversation_history = [create_system_message()]
 
     while True:
-        # --- Get user input ---
         try:
             user_input = input("\nYou: ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -64,25 +96,16 @@ def main() -> None:
 
         if not user_input:
             continue
+
         if user_input.lower() == "exit":
             print("Goodbye!")
             break
 
-        # --- Append user message to history ---
-        conversation_history.append({"role": "user", "content": user_input})
-
-        # --- Get model response ---
         try:
-            reply = chat(conversation_history)
+            reply = chat(conversation_history, user_input)
+            print(f"\nAssistant: {reply}")
         except Exception as e:
-            print(f"\n[Error] Failed to get a response from the model: {e}")
-            # Remove the failed user message so history stays consistent
-            conversation_history.pop()
-            continue
-
-        # --- Append assistant reply and display ---
-        conversation_history.append({"role": "assistant", "content": reply})
-        print(f"\nAssistant: {reply}")
+            print(f"\nError: {e}")
 
 
 if __name__ == "__main__":
